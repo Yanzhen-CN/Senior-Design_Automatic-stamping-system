@@ -1,0 +1,140 @@
+[serial]
+port = "COM3"
+baudrate = 115200
+timeout_s = 2
+dry_run = false
+
+[controller]
+type = "grbl"
+line_ending = "\n"
+wait_for_idle = true
+idle_timeout_s = 20
+
+[machine]
+travel_feed_mm_min = 3000
+jog_feed_mm_min = 500
+z_feed_mm_min = 220
+safe_z_mm = 0
+stamp_z_mm = -8
+stamp_dwell_s = 0.35
+
+[machine.continuous_jog]
+stop_margin_mm = 10
+slow_zone_mm = 20
+min_feed_scale = 0.2
+
+[machine.axes.x]
+actual_mm_per_commanded_mm = 1
+offset_commanded_mm = 0
+invert = false
+min_commanded_mm = 0
+max_commanded_mm = 180
+motor_steps_per_rev = 200
+microsteps = 16
+pulley_teeth = 20
+belt_pitch_mm = 2
+steps_per_mm = 80
+
+[machine.axes.y]
+actual_mm_per_commanded_mm = 1
+offset_commanded_mm = 0
+invert = false
+min_commanded_mm = -1.288
+max_commanded_mm = 0
+motor_steps_per_rev = 200
+microsteps = 16
+pulley_teeth = 20
+belt_pitch_mm = 2
+steps_per_mm = 80
+
+[machine.axes.z]
+actual_mm_per_commanded_mm = 1
+offset_commanded_mm = 0
+invert = false
+min_commanded_mm = -20
+max_commanded_mm = 5
+motor_steps_per_rev = 200
+microsteps = 16
+pulley_teeth = 20
+belt_pitch_mm = 2
+steps_per_mm = 400
+
+[machine.workspace_bounds]
+enabled = true
+origin = [0, 0]
+xMax = [11.488, 11.488]
+yMax = [0, 11.488]
+xMin = -0.65
+xMaxLimit = 0
+yMin = -1.288
+yMaxLimit = 0
+
+[machine.workspace_bounds.x]
+min = 0
+max = 11.488
+
+[machine.workspace_bounds.y]
+min = 0
+max = 11.488
+
+[paper]
+width_mm = 210
+height_mm = 297
+origin_real_mm = [0, 0]
+rotation_deg = 0
+use_detected_quad_for_relative_targets = true
+
+[paper_feed]
+enabled = true
+command = "M100"
+settle_s = 0.5
+feed_length_mm = 15
+reserved_signal_pin = "D8"
+
+[camera]
+index = 0
+width_px = 1920
+height_px = 1080
+height_mm = 420.0
+mount = "fixed_overhead_usb"
+snapshot_path = "runtime/snapshot.jpg"
+placeholder_width_px = 1280
+placeholder_height_px = 720
+browser_device_id = ""
+media_source = "local"
+stream_url = ""
+
+[vision]
+paper_detection_enabled = true
+paper_min_area_ratio = 0.12
+paper_roi_points = []
+stamp_region_machine_points = []
+stamp_region_real_mm = []
+stamp_region_commanded_mm = []
+ocr_enabled = false
+ocr_engine = "pytesseract"
+ocr_language = "chi_sim+eng"
+vlm_endpoint = ""
+
+[calibration]
+mode = "homography"
+
+[[calibration.points]]
+label = "mark_top_left"
+pixel = [0.0, 0.0]
+real_mm = [0.0, 0.0]
+
+[[calibration.points]]
+label = "mark_top_right"
+pixel = [1706.0, 0.0]
+real_mm = [180.0, 0.0]
+
+[[calibration.points]]
+label = "mark_bottom_right"
+pixel = [1706.0, 1279.0]
+real_mm = [180.0, 260.0]
+
+[[calibration.points]]
+label = "mark_bottom_left"
+pixel = [0.0, 1279.0]
+real_mm = [0.0, 260.0]

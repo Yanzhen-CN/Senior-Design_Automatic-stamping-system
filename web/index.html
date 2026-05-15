@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Automatic Stamping System</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h1>Automatic Stamping System</h1>
+            <span id="runtimeStatus">Starting</span>
+          </div>
+          <div class="top-actions">
+            <button id="cameraToggleTopBtn" type="button">Camera On</button>
+            <button id="cameraSimulationTopBtn" class="secondary" type="button">Camera Simulation</button>
+            <input id="cameraSimulationFile" class="hidden" type="file" accept=".png,.jpg,.jpeg,.bmp" />
+            <button id="clearTargetBtn" type="button">Clear Target</button>
+          </div>
+        </header>
+
+        <section class="stage" id="stage">
+          <div id="cameraOffView" class="camera-off">
+            <div class="camera-off-icon">CAM</div>
+            <h2>Webcam is off</h2>
+          </div>
+          <video id="cameraVideo" class="hidden" autoplay muted playsinline></video>
+          <img id="stageImage" class="hidden" alt="preview" draggable="false" />
+          <canvas id="overlay"></canvas>
+          <div id="cameraSimulationAdjust" class="simulation-adjust hidden">
+            <span id="cameraSimulationAdjustLabel">Simulation preview</span>
+            <button id="rotateSimulationLeftBtn" class="secondary" type="button">Rotate Left</button>
+            <button id="rotateSimulationRightBtn" class="secondary" type="button">Rotate Right</button>
+            <button id="confirmSimulationBtn" type="button">Confirm</button>
+            <button id="cancelSimulationPreviewBtn" class="secondary" type="button">Cancel</button>
+          </div>
+        </section>
+
+        <section class="console-grid">
+          <div>
+            <h2>G-code</h2>
+            <pre id="gcodeBox"></pre>
+          </div>
+          <div>
+            <div class="console-head">
+              <h2>Console</h2>
+              <button id="clearConsoleBtn" class="secondary" type="button">Clear</button>
+            </div>
+            <pre id="consoleBox"></pre>
+          </div>
+        </section>
+      </section>
+
+      <aside class="panel">
+        <nav class="tabs">
+          <button class="tab active" data-tab="target" type="button">Target</button>
+          <button class="tab" data-tab="motion" type="button">Motion</button>
+          <button class="tab" data-tab="camera" type="button">Camera</button>
+          <button class="tab" data-tab="advanced" type="button">Advanced</button>
+        </nav>
+
+        <section class="tab-panel active" id="targetPanel">
+          <div class="field">
+            <label for="workflowMode">Mode</label>
+            <select id="workflowMode">
+              <option value="manual_repeat">Mode A - Manual teach</option>
+              <option value="camera_repeat">Mode B - Camera teach</option>
+              <option value="document_repeat">Mode C - A4 file teach</option>
+            </select>
+          </div>
+
+          <section class="block" id="modeABlock">
+            <h3>Mode A</h3>
+            <p class="hint">Move the head with Motion, then Confirm and Run.</p>
+            <div class="actions">
+              <button id="confirmModeABtn" type="button">Confirm Current Position</button>
+              <button id="modeARunBtn" class="danger" type="button">Run</button>
+            </div>
+          </section>
+
+          <section class="block hidden" id="modeBBlock">
+            <h3>Mode B</h3>
+            <p class="hint">Feed the first paper, click the stamp point in the camera view, then confirm.</p>
+            <div class="actions">
+              <button id="confirmModeBBtn" type="button">Confirm Camera Position</button>
+              <button id="modeBRunBtn" class="danger" type="button">Run</button>
+            </div>
+          </section>
+
+          <section class="block hidden" id="modeCBlock">
+            <h3>Mode C</h3>
+            <p class="hint">Choose an A4 file, click the stamp point on the left preview, then confirm.</p>
+            <div class="field">
+              <label for="documentFile">A4 document</label>
+              <input id="documentFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.bmp" />
+            </div>
+            <div class="actions">
+              <button id="confirmModeCBtn" type="button">Confirm File Position</button>
+              <button id="cancelModeCSelectionBtn" class="secondary" type="button">Cancel Selection</button>
+              <button id="modeCRunBtn" class="danger" type="button">Run</button>
+              <button id="modeCDebugBtn" type="button">Debug Run</button>
+            </div>
+            <div id="modeCConfirmMeta" class="hint">No confirmed file position yet.</div>
+            <img id="modeCConfirmPreview" class="mode-debug-preview" alt="Mode C confirmed file position" />
+            <div id="modeCDebugMeta" class="hint">No debug run yet.</div>
+            <img id="modeCDebugPreview" class="mode-debug-preview" alt="Mode C debug preview" />
+          </section>
+
+          <div class="split">
+            <div class="field">
+              <label for="offsetX">Offset X mm</label>
+              <input id="offsetX" type="number" step="0.1" value="0" />
+            </div>
+            <div class="field">
+              <label for="offsetY">Offset Y mm</label>
+              <input id="offsetY" type="number" step="0.1" value="0" />
+            </div>
+          </div>
+
+          <div class="readout">
+            <div><span>Job</span><strong id="jobReadout">-</strong></div>
+            <div><span>Relative</span><strong id="relativeReadout">-</strong></div>
+            <div><span>Pixel</span><strong id="pixelReadout">-</strong></div>
+            <div><span>Paper mm</span><strong id="paperReadout">-</strong></div>
+            <div><span>Machine mm</span><strong id="realReadout">-</strong></div>
+            <div><span>Command mm</span><strong id="commandReadout">-</strong></div>
+          </div>
+
+          <div class="actions" id="targetActionButtons">
+            <button id="previewBtn" type="button">Preview Job</button>
+            <button id="moveSlowBtn" type="button">Move Job Slow</button>
+            <button id="stampDryBtn" type="button">Dry Stamp Job</button>
+            <button id="stampLiveBtn" class="danger" type="button">Live Stamp Job</button>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="motionPanel">
+          <div class="motion-connect-inline">
+            <span class="motion-link-label">Motion</span>
+            <button id="motionConnectBtn" class="secondary" type="button">Connect</button>
+            <span id="motionConnStateReadout">disconnected</span>
+            <span id="motionConnPortReadout">-</span>
+          </div>
+
+          <section class="motion-workbench">
+            <section class="dro motion-dro">
+              <div class="dro-head"><span>Axis</span><span>Work Real (mm)</span><span>Boundary Real (mm)</span></div>
+              <div><strong>X</strong><b id="droMx">0.000</b><b id="droWx">0.000</b></div>
+              <div><strong>Y</strong><b id="droMy">0.000</b><b id="droWy">0.000</b></div>
+              <div><strong>Z</strong><b id="droMz">0.000</b><b id="droWz">0.000</b></div>
+            </section>
+
+            <div class="motion-controls">
+              <section class="xy-pad">
+                <button data-jogvec="-1,1,0" title="Move X- Y+" type="button">&#8598;</button>
+                <button data-jog="y:1" type="button">Y+</button>
+                <button data-jogvec="1,1,0" title="Move X+ Y+" type="button">&#8599;</button>
+
+                <button data-jog="x:-1" type="button">X-</button>
+                <button id="goXYZeroBtn" type="button">X0Y0</button>
+                <button data-jog="x:1" type="button">X+</button>
+
+                <button data-jogvec="-1,-1,0" title="Move X- Y-" type="button">&#8601;</button>
+                <button data-jog="y:-1" type="button">Y-</button>
+                <button data-jogvec="1,-1,0" title="Move X+ Y-" type="button">&#8600;</button>
+              </section>
+
+              <section class="motion-side">
+                <div class="paper-feed-box">
+                  <div class="paper-feed-actions">
+                    <button id="rollerStepBtn" type="button">Step</button>
+                    <button id="rollerFeedBtn" type="button">Feed</button>
+                  </div>
+                </div>
+
+                <div class="z-stack">
+                  <button data-jog="z:1" type="button">Z+</button>
+                  <button data-jog="z:-1" type="button">Z-</button>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="block">
+            <h3>Workspace Bounds</h3>
+            <div class="bounds-actions bounds-actions-set">
+              <button id="captureOriginBtn" type="button">Set X0Y0</button>
+              <button id="captureXMaxBtn" type="button">Set X Max</button>
+              <button id="captureYMaxBtn" type="button">Set Y Max</button>
+            </div>
+            <div class="bounds-actions bounds-actions-apply">
+              <button id="applyBoundsBtn" type="button">Enable</button>
+              <button id="clearBoundsBtn" class="secondary" type="button">Clear</button>
+            </div>
+            <pre id="boundsReadout" class="hidden"></pre>
+          </section>
+
+          <section class="block">
+            <h3>Stamp Region Bounds</h3>
+            <p class="hint">Move the head to the matching region corner, then set the current machine position.</p>
+            <div class="field">
+              <label for="activeStampRegionBoundPoint">Active region corner</label>
+              <select id="activeStampRegionBoundPoint"></select>
+            </div>
+            <div class="actions">
+              <button id="setPaperRoiMachineBtn" type="button">Set Machine Corner</button>
+              <button id="nextStampRegionBoundBtn" type="button">Next Corner</button>
+              <button id="saveStampRegionBoundBtn" type="button">Save Mapping</button>
+              <button id="clearStampRegionBoundBtn" class="secondary" type="button">Clear Machine</button>
+            </div>
+            <div id="stampRegionBoundTable" class="calibration-table"></div>
+          </section>
+
+        </section>
+
+        <section class="tab-panel" id="cameraPanel">
+          <section class="webcam-widget">
+            <div>
+              <h3>Webcam</h3>
+              <span id="cameraStatusText">Off</span>
+            </div>
+            <div class="actions">
+              <button id="cameraToggleBtn" type="button">On</button>
+              <button id="cameraSimulationBtn" class="secondary" type="button">Simulation</button>
+              <button id="cameraSettingsBtn" class="secondary" type="button">Settings</button>
+            </div>
+          </section>
+
+          <section id="cameraSettings" class="block hidden">
+            <h3>Settings</h3>
+            <div class="field">
+              <label for="cameraSourceSelect">Source</label>
+              <select id="cameraSourceSelect">
+                <option value="local">Local USB camera</option>
+                <option value="stream">Network stream URL</option>
+              </select>
+            </div>
+            <div class="field" id="cameraDeviceField">
+              <label for="cameraDeviceSelect">Camera</label>
+              <select id="cameraDeviceSelect"></select>
+            </div>
+            <div class="field hidden" id="streamUrlField">
+              <label for="streamUrlInput">Stream URL</label>
+              <input id="streamUrlInput" type="text" placeholder="http://camera.local/video.mjpg" />
+            </div>
+            <div class="split">
+              <div class="field">
+                <label for="cameraWidthInput">Width px</label>
+                <input id="cameraWidthInput" type="number" step="1" value="1280" />
+              </div>
+              <div class="field">
+                <label for="cameraHeightInput">Height px</label>
+                <input id="cameraHeightInput" type="number" step="1" value="720" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="cameraDistanceInput">Camera to plane mm</label>
+              <input id="cameraDistanceInput" type="number" step="0.1" value="420" />
+            </div>
+            <label class="inline-check">
+              <input id="cameraCrosshairInput" type="checkbox" checked />
+              <span>Crosshair</span>
+            </label>
+            <div class="actions">
+              <button id="refreshCameraDevicesBtn" type="button">Refresh Devices</button>
+              <button id="saveCameraSetupBtn" type="button">Save Settings</button>
+            </div>
+          </section>
+
+          <section class="block">
+            <h3>Stamp/Detect Region</h3>
+            <p class="hint">Set the usable area to search, recognize, and stamp. It can be smaller than the full paper.</p>
+            <div class="actions">
+              <button id="drawPaperRoiBtn" type="button">Auto Rect</button>
+              <button id="savePaperRoiBtn" type="button">Save</button>
+              <button id="toggleStampRegionOverlayBtn" class="secondary" type="button">Disable</button>
+              <button id="clearPaperRoiBtn" class="secondary" type="button">Clear</button>
+            </div>
+            <div id="paperRoiTable" class="calibration-table"></div>
+          </section>
+
+          <section class="block">
+            <h3>Detect Debug</h3>
+            <div id="detectDebugMeta" class="hint">No debug image yet.</div>
+            <img id="detectDebugImage" class="detect-debug-image" alt="detect debug" />
+          </section>
+        </section>
+
+        <section class="tab-panel" id="advancedPanel">
+          <section class="block">
+            <h3>Camera Calibration</h3>
+            <p class="hint">Developer setup for four camera anchors. Use only when the camera geometry needs calibration.</p>
+            <div class="field">
+              <label for="activeCalPoint">Active anchor</label>
+              <select id="activeCalPoint"></select>
+            </div>
+            <div class="actions">
+              <button id="nextCalPointBtn" type="button">Next</button>
+              <button id="saveCalibrationBtn" type="button">Save</button>
+              <button id="toggleCalibrationOverlayBtn" class="secondary" type="button">Disable</button>
+              <button id="clearCalibrationBtn" class="secondary" type="button">Clear</button>
+            </div>
+            <div class="readout">
+              <div><span>Clicked</span><strong id="calClickedReadout">-</strong></div>
+            </div>
+            <div id="calibrationTable" class="calibration-table"></div>
+          </section>
+
+          <section class="block">
+            <h3>Serial Connection</h3>
+            <div class="field">
+              <label for="serialPortSelect">Controller port</label>
+              <select id="serialPortSelect"></select>
+            </div>
+            <div class="split">
+              <div class="field">
+                <label for="serialBaudrateInput">Baudrate</label>
+                <input id="serialBaudrateInput" type="number" step="1" value="115200" />
+              </div>
+              <label class="inline-check serial-check">
+                <input id="serialDryRunInput" type="checkbox" />
+                <span>Dry run</span>
+              </label>
+            </div>
+            <div class="actions">
+              <button id="scanSerialBtn" type="button">Scan Ports</button>
+              <button id="serialConnectBtn" type="button">Connect</button>
+              <button id="serialDisconnectBtn" type="button">Disconnect</button>
+              <button id="serialUnlockBtn" type="button">Unlock $X</button>
+              <button id="serialStatusBtn" type="button">Status ?</button>
+              <button id="serialResetBtn" class="danger" type="button">Soft Reset</button>
+            </div>
+            <div class="readout">
+              <div><span>Connection</span><strong id="serialConnectionReadout">-</strong></div>
+              <div><span>Port</span><strong id="serialPortReadout">-</strong></div>
+            </div>
+          </section>
+
+          <section class="block">
+            <h3>Paper Feed</h3>
+            <div class="field">
+              <label for="rollerLengthInput">Step length mm</label>
+              <input id="rollerLengthInput" type="number" step="0.1" value="35" />
+            </div>
+            <div class="actions">
+              <button id="savePaperFeedBtn" type="button">Save Feed Setting</button>
+            </div>
+          </section>
+
+          <section class="block">
+            <h3>Motion Jog</h3>
+            <div class="jog-step-box advanced-jog-box">
+              <select id="jogStep">
+                <option value="0.1">0.1 mm</option>
+                <option value="1" selected>1 mm</option>
+                <option value="5">5 mm</option>
+                <option value="10">10 mm</option>
+              </select>
+              <div class="step-adjust">
+                <button id="jogStepDownBtn" type="button">-</button>
+                <button id="jogStepUpBtn" type="button">+</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="block">
+            <h3>Motion Distance Calibration</h3>
+            <div class="readout compact">
+              <div><span>Current jog step</span><strong id="motionCalStepReadout">-</strong></div>
+            </div>
+
+            <div class="split">
+              <div class="field">
+                <label for="axisXScaleInput">X real mm per command 1.00 mm</label>
+                <input id="axisXScaleInput" type="number" step="0.0001" value="1" />
+              </div>
+              <div class="field">
+                <label for="axisXMeasuredInput">X measured mm per one jog click</label>
+                <input id="axisXMeasuredInput" type="number" step="0.001" placeholder="optional" />
+              </div>
+            </div>
+            <div class="split">
+              <div class="field">
+                <label for="axisYScaleInput">Y real mm per command 1.00 mm</label>
+                <input id="axisYScaleInput" type="number" step="0.0001" value="1" />
+              </div>
+              <div class="field">
+                <label for="axisYMeasuredInput">Y measured mm per one jog click</label>
+                <input id="axisYMeasuredInput" type="number" step="0.001" placeholder="optional" />
+              </div>
+            </div>
+            <div class="split">
+              <div class="field">
+                <label for="axisZScaleInput">Z real mm per command 1.00 mm</label>
+                <input id="axisZScaleInput" type="number" step="0.0001" value="1" />
+              </div>
+              <div class="field">
+                <label for="axisZMeasuredInput">Z measured mm per one jog click</label>
+                <input id="axisZMeasuredInput" type="number" step="0.001" placeholder="optional" />
+              </div>
+            </div>
+            <div class="actions">
+              <button id="applyMeasuredScalesBtn" type="button">Apply Measured</button>
+              <button id="saveMotionScaleBtn" type="button">Save Calibration</button>
+            </div>
+          </section>
+
+          <section class="block">
+            <h3>Firmware</h3>
+            <div class="field">
+              <label for="flashPortSelect">Flash port</label>
+              <select id="flashPortSelect"></select>
+            </div>
+            <div class="field">
+              <label for="flashHexPathInput">HEX path</label>
+              <input id="flashHexPathInput" type="text" />
+            </div>
+            <div class="actions">
+              <button id="loadFirmwareSettingsBtn" type="button">Load Settings</button>
+              <button id="flashNowBtn" class="danger" type="button">Flash Firmware</button>
+            </div>
+          </section>
+        </section>
+      </aside>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
