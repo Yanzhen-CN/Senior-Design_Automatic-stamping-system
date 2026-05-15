@@ -199,19 +199,35 @@
           </section>
 
           <section class="block">
-            <h3>Stamp Region Bounds</h3>
-            <p class="hint">Move the head to the matching region corner, then set the current machine position.</p>
+            <h3>Stamp Region XY Alignment</h3>
+            <p class="hint">Match camera region corners to real XY positions. Move the head to the same corner, then align it.</p>
             <div class="field">
               <label for="activeStampRegionBoundPoint">Active region corner</label>
               <select id="activeStampRegionBoundPoint"></select>
             </div>
             <div class="actions">
-              <button id="setPaperRoiMachineBtn" type="button">Set Machine Corner</button>
+              <button id="setPaperRoiMachineBtn" type="button">Align Machine Corner</button>
               <button id="nextStampRegionBoundBtn" type="button">Next Corner</button>
               <button id="saveStampRegionBoundBtn" type="button">Save Mapping</button>
               <button id="clearStampRegionBoundBtn" class="secondary" type="button">Clear Machine</button>
             </div>
             <div id="stampRegionBoundTable" class="calibration-table"></div>
+          </section>
+
+          <section class="block">
+            <h3>Paper Roller A4 Alignment</h3>
+            <p class="hint">Set A0 at the start of one sheet, jog/feed to the next A4 sheet position, then set A1 and save.</p>
+            <div class="actions">
+              <button id="setRollerA0Btn" type="button">Set A0</button>
+              <button id="setRollerA1Btn" type="button">Set A1</button>
+              <button id="saveRollerA4Btn" type="button">Save A4 Feed</button>
+              <button id="clearRollerAlignBtn" class="secondary" type="button">Clear</button>
+            </div>
+            <div class="readout compact">
+              <div><span>A0</span><strong id="rollerA0Readout">-</strong></div>
+              <div><span>A1</span><strong id="rollerA1Readout">-</strong></div>
+              <div><span>Travel</span><strong id="rollerTravelReadout">-</strong></div>
+            </div>
           </section>
 
         </section>

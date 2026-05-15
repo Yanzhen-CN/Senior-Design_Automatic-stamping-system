@@ -1,12 +1,13 @@
 # Automatic Stamping System
 
-自动盖章机控制项目。主框架是一条线：
+Automatic stamping controller for the modified writing robot / GRBL frame.
+
+Main pipeline:
 
 ```text
-Frontend target rule / relative position
-USB camera snapshot
-Paper / text / target detection
-Pixel -> paper mm -> machine mm
+Frontend selects/teaches stamp target
+Camera or simulation image provides the current paper view
+Document / camera position is mapped to a stamp target
 Python generates G-code
 Serial sends G-code to Arduino / GRBL
 XY move -> Z press -> Z reset -> paper feed
@@ -14,28 +15,34 @@ XY move -> Z press -> Z reset -> paper feed
 
 ## Quick Start
 
+Run these commands from the project root:
+
+```cmd
+cd /d D:\Personal\Desktop\SD\Automatic-stamping-system
+```
+
 Create or update the `SD` conda environment:
 
 ```cmd
 scripts\setup_env.bat
 ```
 
-Run in browser mode:
+Start the desktop app:
+
+```cmd
+scripts\run_app.bat
+```
+
+For browser debugging:
 
 ```cmd
 scripts\run_web.bat
 ```
 
-Then open:
+Open:
 
 ```text
 http://127.0.0.1:8000
-```
-
-Run as a desktop window:
-
-```cmd
-scripts\run_app.bat
 ```
 
 Build a Windows exe:
@@ -50,110 +57,99 @@ Output:
 desktop\pywebview\dist\AutomaticStampingSystem.exe
 ```
 
-The built exe does not require the target user to install Python or conda.
+## Main Modes
 
-## Operating Modes
+### Mode A - Manual Teach
 
-Mode A - first physical sheet teaches the position:
-
-```text
-Load first sheet -> Camera -> Detect Paper -> click stamp point -> Confirm Camera Position
-```
-
-The confirmed point is stored as a paper-relative coordinate, such as `0.78, 0.84`. Later sheets reuse that same relative point. Before each move/stamp, the app can detect the current sheet and convert that relative point to the current machine coordinate.
-
-Mode A cycle automation (Target tab):
+Use Motion to move the stamp head to the desired physical position, then confirm and repeat.
 
 ```text
-Feed sheet -> capture before frame -> detect paper -> stamp -> return X0Y0
-capture after frame -> detect red stamp offset -> update compensation memory
+Move with Motion -> Confirm Current Position -> Run
 ```
 
-Available Mode A controls:
+### Mode B - Camera Teach
+
+Use the live camera or camera simulation image. Click the target on the camera view, confirm, then repeat.
 
 ```text
-Batch cycles
-Comp gain
-Feed before / feed after
-Apply learned compensation
-Run One Cycle / Run Batch
-Reset Compensation
+Feed first sheet -> click camera target -> Confirm Camera Position -> Run
 ```
 
-Mode B - uploaded A4 file teaches the position:
+### Mode C - A4 File Teach
+
+Upload an A4 PDF/image. The file preview is shown on the main screen automatically. Click the file target, then confirm.
 
 ```text
-Upload PDF/image -> click stamp point on document preview -> Confirm File Position
+Choose A4 file -> click file target -> Confirm File Position
+Camera/simulation view returns -> Debug Run or Run
 ```
 
-The clicked file coordinate is also stored as an A4-relative coordinate. When a real sheet is placed in the machine, the app detects the physical sheet and maps the saved file-relative coordinate to machine coordinates.
+`Debug Run` matches the uploaded document preview against the current camera/simulation image with OpenCV, maps the selected file point into the camera image, and draws a red target dot. If the target is outside the Stamp Region, the UI shows a warning.
 
-Both modes use the same fine-tuning controls:
+## Camera And Simulation
+
+Use `Camera On` for a USB camera.
+
+Use `Camera Simulation` to upload a photo as a fake camera frame. Simulation supports rotation before confirmation. When simulation is active, all modes use the simulation image instead of the live camera.
+
+## Setup Workflow
+
+Developer setup is done from the frontend:
 
 ```text
-Preview Job -> Move Job Slow -> Jog X/Y/Z if needed -> Dry Stamp Job -> Live Stamp Job
+Camera:
+  Set camera source/resolution
+  Set Stamp/Detect Region
+
+Motion:
+  Connect GRBL controller
+  Set Workspace Bounds
+  Set Stamp Region XY Alignment
+  Set Paper Roller A4 Alignment
+
+Advanced:
+  Serial settings
+  Motion distance calibration
+  Camera calibration fallback
+  Firmware flashing
 ```
 
-For DOCX files, export or print them to PDF first, then upload the PDF.
+Daily operation should mainly use the `Target` tab after setup is saved.
 
-## Camera Setup From Frontend
+## Key Calibration Concepts
 
-Normal users do not need to edit code or `machine.toml`.
+`Stamp/Detect Region` is the usable camera region for recognition and stamping. It is drawn as a red rectangle on the camera image and saved to `config/machine.toml`.
 
-Use the `Camera` tab:
+`Stamp Region XY Alignment` maps the camera region corners to machine XY coordinates. Move the stamp head to each matching region corner and click `Align Machine Corner`.
 
-```text
-Scan Cameras
-Select USB camera
-Set resolution and camera-to-plane distance
-Apply Camera
-Camera
-Click each visible anchor in the camera image
-Use Clicked Pixel
-Next Anchor
-Save Calibration
-Test Clicked Point
-```
+`Paper Roller A4 Alignment` is reserved for the fourth-axis paper feed. Set `A0`, feed one A4 sheet length, set `A1`, then save. The measured A0-A1 distance becomes the default feed length.
 
-The `Advanced` tab keeps low-level machine parameters available for developers, but daily stamping should use `Target`, `Motion`, and `Camera`.
+## Hardware Notes
+
+- The current GRBL board handles XYZ.
+- The paper roller interface is reserved through the frontend and backend.
+- A separate controller for the independent roller is recommended if UNO/GRBL does not expose a clean fourth-axis interface.
+- Use a powered USB hub if the camera, GRBL board, and roller controller need to share one PC USB port.
+- A spring-loaded stamp head is recommended so Z can press against a compliant mechanism instead of hard-stalling the motor.
 
 ## Main Files
 
 ```text
-config/machine.toml                    Machine, camera, serial, calibration config
+config/machine.toml                    Machine, camera, serial, region config
 web/                                   Frontend control panel
 src/stamping_system/                   Python backend
-src/stamping_system/documents.py        PDF/image upload preview support
+src/stamping_system/document_matching.py Mode C document-camera matching
+src/stamping_system/documents.py        PDF/image upload preview
 desktop/pywebview/app.py               Desktop window entry
-desktop/pywebview/AutomaticStampingApp.spec
 scripts/setup_env.bat                  Create/update SD environment
-scripts/run_web.bat                    Run local web controller
-scripts/run_app.bat                    Run desktop app from SD environment
-scripts/build_exe.bat                  Build final Windows exe
-docs/system_notes.md                   Calibration and camera notes
-arduino/stamping_controller.ino         Optional custom Arduino protocol
+scripts/run_app.bat                    Run desktop app
+scripts/run_web.bat                    Run browser debug server
+scripts/build_exe.bat                  Build Windows exe
+docs/run_instructions.md               Short run instructions
 ```
 
-## Calibration Notes
+## Notes
 
-Camera height is stored in config, but accurate positioning needs four-point calibration. The frontend writes these values into `config/machine.toml`:
+For DOCX files, export to PDF first, then upload the PDF.
 
-```text
-calibration.points[*].pixel
-calibration.points[*].real_mm
-```
-
-Stepper correction uses:
-
-```text
-actual_mm_per_commanded_mm = measured_mm / commanded_mm
-```
-
-Example: command 100 mm, measure 98.6 mm, set `0.986`.
-
-## Hardware Notes
-
-- Default serial mode is dry-run: `serial.dry_run = true`.
-- A fixed overhead USB camera is recommended.
-- If the stamp head blocks the target, lock the target before moving, then use slow move / jog feedback before pressing.
-- CNCjs can still be used for early GRBL movement debugging; this project replaces it for camera-based automatic stamping.
+CNCjs can still be used for low-level GRBL debugging. This project replaces CNCjs for camera-based automatic stamping workflows.

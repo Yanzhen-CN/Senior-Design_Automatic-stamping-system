@@ -50,6 +50,9 @@ const ui = {
   paperRoiTable: $("#paperRoiTable"),
   activeStampRegionBoundPoint: $("#activeStampRegionBoundPoint"),
   stampRegionBoundTable: $("#stampRegionBoundTable"),
+  rollerA0Readout: $("#rollerA0Readout"),
+  rollerA1Readout: $("#rollerA1Readout"),
+  rollerTravelReadout: $("#rollerTravelReadout"),
   targetActionButtons: $("#targetActionButtons"),
   jogStep: $("#jogStep"),
   serialPort: $("#serialPortSelect"),
@@ -107,6 +110,8 @@ let cameraModeBeforeDocument = "off";
 let imageSrcBeforeDocument = "";
 let confirmedModeCRelative = null;
 let confirmedModeCDocumentPixel = null;
+let rollerPositionMm = 0;
+let rollerAlignment = { a0: null, a1: null };
 let detectedPaper = null;
 let detectedPaperVisibleUntil = 0;
 let detectedPaperTimer = null;
@@ -480,6 +485,87 @@ function mediaToOverlay(point) {
   ];
 }
 
+function configPixelToActiveMedia(point) {
+  if (!Array.isArray(point) || point.length !== 2) return null;
+  const [mediaWidth, mediaHeight] = activeMediaSize();
+  const configWidth = Number(appConfig?.camera?.width_px) || mediaWidth;
+  const configHeight = Number(appConfig?.camera?.height_px) || mediaHeight;
+  return [
+    Number(point[0]) * mediaWidth / Math.max(1, configWidth),
+    Number(point[1]) * mediaHeight / Math.max(1, configHeight),
+  ];
+}
+
+function activeMediaToConfigPixel(point) {
+  if (!Array.isArray(point) || point.length !== 2) return null;
+  const [mediaWidth, mediaHeight] = activeMediaSize();
+  const configWidth = Number(appConfig?.camera?.width_px) || mediaWidth;
+  const configHeight = Number(appConfig?.camera?.height_px) || mediaHeight;
+  return [
+    Number(point[0]) * configWidth / Math.max(1, mediaWidth),
+    Number(point[1]) * configHeight / Math.max(1, mediaHeight),
+  ];
+}
+
+function stampRegionPointsForActiveMedia() {
+  return (appConfig?.vision?.paper_roi_points || [])
+    .slice(0, 4)
+    .map((point) => configPixelToActiveMedia(point));
+}
+
+function stampRegionForImage(imageWidth, imageHeight) {
+  const points = (appConfig?.vision?.paper_roi_points || []).slice(0, 4);
+  if (points.length !== 4 || !points.every((point) => Array.isArray(point) && point.length === 2)) return null;
+  const configWidth = Number(appConfig?.camera?.width_px) || imageWidth;
+  const configHeight = Number(appConfig?.camera?.height_px) || imageHeight;
+  return points.map((point) => [
+    Number(point[0]) * imageWidth / Math.max(1, configWidth),
+    Number(point[1]) * imageHeight / Math.max(1, configHeight),
+  ]);
+}
+
+function pointInPolygon(point, polygon) {
+  if (!Array.isArray(point) || !Array.isArray(polygon) || polygon.length < 3) return false;
+  const x = Number(point[0]);
+  const y = Number(point[1]);
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const xi = Number(polygon[i][0]);
+    const yi = Number(polygon[i][1]);
+    const xj = Number(polygon[j][0]);
+    const yj = Number(polygon[j][1]);
+    const intersect = ((yi > y) !== (yj > y))
+      && (x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-9) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function regionBounds(polygon) {
+  if (!Array.isArray(polygon) || !polygon.length) return null;
+  const xs = polygon.map((point) => Number(point[0])).filter(Number.isFinite);
+  const ys = polygon.map((point) => Number(point[1])).filter(Number.isFinite);
+  if (!xs.length || !ys.length) return null;
+  return {
+    left: Math.min(...xs),
+    right: Math.max(...xs),
+    top: Math.min(...ys),
+    bottom: Math.max(...ys),
+  };
+}
+
+function regionOverflowVector(point, polygon) {
+  const bounds = regionBounds(polygon);
+  if (!bounds || !Array.isArray(point)) return null;
+  const x = Number(point[0]);
+  const y = Number(point[1]);
+  return {
+    dx_px: x < bounds.left ? bounds.left - x : (x > bounds.right ? bounds.right - x : 0),
+    dy_px: y < bounds.top ? bounds.top - y : (y > bounds.bottom ? bounds.bottom - y : 0),
+    bounds,
+  };
+}
+
 function overlayToMedia(point) {
   if (!Array.isArray(point) || point.length !== 2) return null;
   const metrics = mediaViewportMetrics();
@@ -529,7 +615,7 @@ function findNearestCalibrationPointIndex(event, maxDistancePx = 18) {
 }
 
 function findNearestStampRegionPointIndex(event, maxDistancePx = 18) {
-  const points = appConfig?.vision?.paper_roi_points || [];
+  const points = stampRegionPointsForActiveMedia();
   if (!points.length) return null;
   const rect = ui.overlay.getBoundingClientRect();
   const ox = event.clientX - rect.left;
@@ -570,7 +656,7 @@ function distancePointToSegment(point, a, b) {
 }
 
 function findNearestStampRegionEdgeIndex(event, maxDistancePx = 12) {
-  const points = (appConfig?.vision?.paper_roi_points || []).slice(0, 4);
+  const points = stampRegionPointsForActiveMedia();
   if (points.length !== 4 || points.some((point) => !Array.isArray(point))) return null;
   const rect = ui.overlay.getBoundingClientRect();
   const overlayPoint = [event.clientX - rect.left, event.clientY - rect.top];
@@ -771,8 +857,7 @@ function drawOverlay() {
     drawQuad(calibrationPixels, "rgba(33, 111, 198, 1)", "rgba(33, 111, 198, 0.10)", 4, true);
   }
 
-  const paperRoiPixels = (appConfig?.vision?.paper_roi_points || [])
-    .slice(0, 4)
+  const paperRoiPixels = stampRegionPointsForActiveMedia()
     .filter((pixel) => Array.isArray(pixel) && pixel.length === 2);
   if (showStampRegionOverlay && cameraMode !== "document" && paperRoiPixels.length >= 2) {
     drawPath(paperRoiPixels, "rgba(210, 40, 40, 0.98)", 1.5, false);
@@ -801,7 +886,7 @@ function drawOverlay() {
     });
   }
   if (showStampRegionOverlay && appConfig?.vision?.paper_roi_points && cameraMode !== "document") {
-    appConfig.vision.paper_roi_points.slice(0, 4).forEach((point, index) => {
+    stampRegionPointsForActiveMedia().forEach((point, index) => {
       if (!Array.isArray(point)) return;
       const active = index === Number(ui.activePaperRoiPoint?.value || 0);
       drawCross(point, active ? "#c93a3a" : "#8f2b2b", active ? 10 : 7);
@@ -826,8 +911,13 @@ async function loadConfig() {
   hydrateConfigInputs();
   renderCalibration();
   renderPaperRoi();
+  showStampRegionOverlay = paperRoiComplete();
+  const stampToggle = $("#toggleStampRegionOverlayBtn");
+  if (stampToggle) stampToggle.textContent = showStampRegionOverlay ? "Disable" : "Enable";
+  if (showStampRegionOverlay) cameraEditTarget = "region";
   updateModeUI();
   updateBoundsReadout();
+  drawOverlay();
   setStatus("Ready");
   log("Config loaded");
 }
@@ -843,6 +933,12 @@ function hydrateConfigInputs() {
   fillSelect(ui.serialPort, [{ value: appConfig.serial.port, label: `${appConfig.serial.port} (configured)` }]);
   fillSelect(ui.flashPort, [{ value: appConfig.serial.port, label: `${appConfig.serial.port} (configured)` }]);
   ui.rollerLength.value = appConfig.paper_feed?.feed_length_mm || 35;
+  rollerAlignment = {
+    a0: appConfig.paper_feed?.alignment_a0_mm ?? null,
+    a1: appConfig.paper_feed?.alignment_a1_mm ?? null,
+  };
+  if (Number.isFinite(Number(rollerAlignment.a0))) rollerPositionMm = Number(rollerAlignment.a0);
+  renderRollerAlignment();
   ui.cameraDevice.innerHTML = "";
   const deviceOption = document.createElement("option");
   deviceOption.value = appConfig.camera.browser_device_id || "";
@@ -850,6 +946,16 @@ function hydrateConfigInputs() {
   ui.cameraDevice.appendChild(deviceOption);
   updateCameraSourceFields();
   hydrateMotionCalibrationInputs();
+}
+
+function renderRollerAlignment() {
+  const a0 = Number.isFinite(Number(rollerAlignment.a0)) ? Number(rollerAlignment.a0) : null;
+  const a1 = Number.isFinite(Number(rollerAlignment.a1)) ? Number(rollerAlignment.a1) : null;
+  if (ui.rollerA0Readout) ui.rollerA0Readout.textContent = a0 === null ? "-" : `${a0.toFixed(3)} mm`;
+  if (ui.rollerA1Readout) ui.rollerA1Readout.textContent = a1 === null ? "-" : `${a1.toFixed(3)} mm`;
+  if (ui.rollerTravelReadout) {
+    ui.rollerTravelReadout.textContent = a0 === null || a1 === null ? "-" : `${Math.abs(a1 - a0).toFixed(3)} mm`;
+  }
 }
 
 function hydrateMotionCalibrationInputs() {
@@ -1011,7 +1117,7 @@ function startStampRegionDraw() {
     [mediaWidth - marginX, marginY],
     [mediaWidth - marginX, mediaHeight - marginY],
     [marginX, mediaHeight - marginY],
-  ];
+  ].map((point) => activeMediaToConfigPixel(point));
   stampRegionDrawIndex = 0;
   cameraEditTarget = "region";
   showStampRegionOverlay = true;
@@ -1727,6 +1833,21 @@ async function debugModeCPreview() {
   ui.modeCDebugMeta.textContent = result.found
     ? `${result.message} target ${fmtPoint(result.target_pixel)}`
     : result.message || "Document match failed.";
+  if (result.found && Array.isArray(result.target_pixel)) {
+    const image = await loadImageFromDataUrl(imageData);
+    const region = stampRegionForImage(image.naturalWidth, image.naturalHeight);
+    if (region && !pointInPolygon(result.target_pixel, region)) {
+      const overflow = regionOverflowVector(result.target_pixel, region);
+      const dx = overflow ? Number(overflow.dx_px).toFixed(1) : "0.0";
+      const dy = overflow ? Number(overflow.dy_px).toFixed(1) : "0.0";
+      ui.modeCDebugMeta.textContent += ` | WARNING: target outside Stamp Region. Suggested paper/image shift dx=${dx}px, dy=${dy}px.`;
+      log("Mode C target outside stamp region", {
+        target_pixel: result.target_pixel,
+        suggested_shift_px: overflow ? { dx_px: overflow.dx_px, dy_px: overflow.dy_px } : null,
+        region,
+      });
+    }
+  }
   log(result.found ? "Mode C document matched" : "Mode C document match failed", result);
 }
 
@@ -2660,6 +2781,8 @@ async function runPaperFeed(lengthMm = null, repeat = 1) {
     }),
   });
   renderSerialStatus(result.status, result.serial);
+  rollerPositionMm += parsedLength * safeRepeat;
+  renderRollerAlignment();
   requestStatusBurst(3, 160);
 }
 
@@ -2677,6 +2800,48 @@ async function savePaperFeedSetting() {
   ui.rollerLength.value = appConfig.paper_feed?.feed_length_mm || feedLen;
   setStatus("Feed setting saved");
   log("Paper feed step saved", { feed_length_mm: ui.rollerLength.value });
+}
+
+function setRollerA0() {
+  rollerPositionMm = 0;
+  rollerAlignment.a0 = 0;
+  rollerAlignment.a1 = null;
+  renderRollerAlignment();
+  log("Paper roller A0 set", { a0_mm: rollerAlignment.a0 });
+}
+
+function setRollerA1() {
+  rollerAlignment.a1 = rollerPositionMm;
+  renderRollerAlignment();
+  log("Paper roller A1 set", { a1_mm: rollerAlignment.a1 });
+}
+
+async function saveRollerA4Alignment() {
+  const a0 = Number(rollerAlignment.a0);
+  const a1 = Number(rollerAlignment.a1);
+  if (!Number.isFinite(a0) || !Number.isFinite(a1) || Math.abs(a1 - a0) <= 0) {
+    throw new Error("Set roller A0 and A1 first");
+  }
+  const travel = Math.abs(a1 - a0);
+  appConfig.paper_feed.feed_length_mm = Number(travel.toFixed(3));
+  appConfig.paper_feed.alignment_a0_mm = a0;
+  appConfig.paper_feed.alignment_a1_mm = a1;
+  const result = await api("/api/config", {
+    method: "POST",
+    body: JSON.stringify({ config: appConfig }),
+  });
+  appConfig = result.config;
+  ui.rollerLength.value = appConfig.paper_feed?.feed_length_mm || travel;
+  renderRollerAlignment();
+  setStatus("A4 feed alignment saved");
+  log("Paper roller A4 alignment saved", { a0_mm: a0, a1_mm: a1, feed_length_mm: travel });
+}
+
+function clearRollerAlignment() {
+  rollerPositionMm = 0;
+  rollerAlignment = { a0: null, a1: null };
+  renderRollerAlignment();
+  log("Paper roller alignment cleared");
 }
 
 function applyMeasuredScaleForAxis(axis, measuredDistanceMm, jogStepMm) {
@@ -2831,7 +2996,7 @@ function useSelectedPixelForPaperRoi() {
   }
   const points = ensurePaperRoiPoints();
   const index = activeStampRegionCornerIndex();
-  points[index] = [selectedPixel[0], selectedPixel[1]];
+  points[index] = activeMediaToConfigPixel(selectedPixel);
   renderPaperRoi();
   drawOverlay();
 }
@@ -2840,7 +3005,7 @@ function commitPointToActiveStampRegion(point) {
   if (!Array.isArray(point)) return false;
   ensurePaperRoiPoints();
   const index = activeStampRegionCornerIndex();
-  appConfig.vision.paper_roi_points[index] = [point[0], point[1]];
+  appConfig.vision.paper_roi_points[index] = activeMediaToConfigPixel(point);
   selectedPixel = point;
   showStampRegionOverlay = true;
   const button = $("#toggleStampRegionOverlayBtn");
@@ -2854,7 +3019,7 @@ function moveStampRegionPoint(index, point) {
   if (!Array.isArray(point)) return false;
   ensurePaperRoiPoints();
   const points = appConfig.vision.paper_roi_points;
-  const existing = points.slice(0, 4);
+  const existing = stampRegionPointsForActiveMedia();
   if (existing.every((item) => Array.isArray(item) && item.length === 2)) {
     const xs = existing.map((item) => Number(item[0]));
     const ys = existing.map((item) => Number(item[1]));
@@ -2875,12 +3040,12 @@ function moveStampRegionPoint(index, point) {
       if (index === 0 || index === 1) top = bottom - minSize;
       else bottom = top + minSize;
     }
-    points[0] = [left, top];
-    points[1] = [right, top];
-    points[2] = [right, bottom];
-    points[3] = [left, bottom];
+    points[0] = activeMediaToConfigPixel([left, top]);
+    points[1] = activeMediaToConfigPixel([right, top]);
+    points[2] = activeMediaToConfigPixel([right, bottom]);
+    points[3] = activeMediaToConfigPixel([left, bottom]);
   } else {
-    points[index] = [point[0], point[1]];
+    points[index] = activeMediaToConfigPixel(point);
   }
   selectedPixel = point;
   syncStampRegionCornerSelects(index);
@@ -2891,9 +3056,10 @@ function moveStampRegionPoint(index, point) {
 function moveStampRegionEdge(edgeIndex, delta) {
   ensurePaperRoiPoints();
   const points = appConfig.vision.paper_roi_points;
-  if (points.slice(0, 4).some((point) => !Array.isArray(point))) return;
-  const xs = points.slice(0, 4).map((point) => Number(point[0]));
-  const ys = points.slice(0, 4).map((point) => Number(point[1]));
+  const activePoints = stampRegionPointsForActiveMedia();
+  if (activePoints.slice(0, 4).some((point) => !Array.isArray(point))) return;
+  const xs = activePoints.slice(0, 4).map((point) => Number(point[0]));
+  const ys = activePoints.slice(0, 4).map((point) => Number(point[1]));
   let left = Math.min(...xs);
   let right = Math.max(...xs);
   let top = Math.min(...ys);
@@ -2911,10 +3077,10 @@ function moveStampRegionEdge(edgeIndex, delta) {
     if (edgeIndex === 2) bottom = top + minSize;
     if (edgeIndex === 0) top = bottom - minSize;
   }
-  points[0] = [left, top];
-  points[1] = [right, top];
-  points[2] = [right, bottom];
-  points[3] = [left, bottom];
+  points[0] = activeMediaToConfigPixel([left, top]);
+  points[1] = activeMediaToConfigPixel([right, top]);
+  points[2] = activeMediaToConfigPixel([right, bottom]);
+  points[3] = activeMediaToConfigPixel([left, bottom]);
   renderPaperRoi();
   drawOverlay();
 }
@@ -3324,6 +3490,10 @@ function bindEvents() {
     errorName: "Paper feed failed",
   });
   $("#savePaperFeedBtn").addEventListener("click", () => task("Saving feed setting", savePaperFeedSetting));
+  $("#setRollerA0Btn").addEventListener("click", setRollerA0);
+  $("#setRollerA1Btn").addEventListener("click", setRollerA1);
+  $("#saveRollerA4Btn").addEventListener("click", () => task("Saving roller A4 alignment", saveRollerA4Alignment));
+  $("#clearRollerAlignBtn").addEventListener("click", clearRollerAlignment);
 
   $("#loadFirmwareSettingsBtn").addEventListener("click", () => task("Firmware settings", loadFirmwareSettings));
   $("#flashNowBtn").addEventListener("click", () => task("Flashing", flashFirmware));
